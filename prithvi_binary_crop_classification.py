@@ -16,7 +16,23 @@ import matplotlib.pyplot as plt
 # In[2]:
 
 
+# Get absolute path of the local package
+local_package_path = os.path.abspath(os.path.join(os.getcwd(), '..', 'terratorch'))
+
+# Add the path to system path if it's not already there
+if local_package_path not in sys.path:
+    sys.path.insert(0, local_package_path)
+
+# If you had previously imported terratorch, you'll need to reload it
+import importlib
+if 'terratorch' in sys.modules:
+    importlib.reload(sys.modules['terratorch'])
+
 import terratorch
+
+# Verify the import
+print(f"terratorch package location: {terratorch.__file__}")
+
 from terratorch.datamodules import MultiTemporalCropClassificationDataModule
 from terratorch.datasets import MultiTemporalCropClassification
 from terratorch.tasks import SemanticSegmentationTask
@@ -45,18 +61,6 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 if torch.cuda.is_available():
     num_gpus = torch.cuda.device_count()
     print("Number of GPUs:", num_gpus)
-
-
-# In[9]:
-
-
-# ! tar -xvzf ../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/training_chips.tgz -C ../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/ && \
-# tar -xvzf ../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/validation_chips.tgz -C ../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/ && \
-# mv ../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/training_data.txt ../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/training_chips/ && \
-# mv ../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/validation_data.txt ../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/validation_chips/
-
-
-# In[10]:
 
 
 DATASET_PATH = '../../data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-crop-noncrop-classification/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/' 
