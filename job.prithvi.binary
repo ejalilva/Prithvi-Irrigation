@@ -1,0 +1,17 @@
+#!/usr/local/bin/bash
+#SBATCH --job-name=prithvi-ag   #job name
+#SBATCH -o test_prithvi_gpu.o%j
+#SBATCH --partition=gpu_a100
+#SBATCH --gres=gpu:4
+#SBATCH --mem-per-gpu=100G
+#SBATCH --time=1:30:00
+#SBATCH --account=s1189
+#SBATCH --constraint=rome
+##SBATCH --qos=debug
+ulimit -s unlimited
+
+## load the necessary modules and activate the prithvi env
+module load anaconda
+conda activate prithvi
+
+srun --gres=gpu:4 --exclusive python3 prithvi_binary_crop_classification.py
