@@ -3,8 +3,8 @@
 #SBATCH -o irrigation_prithvi_gpu.o%j
 #SBATCH --partition=gpu_a100
 #SBATCH --gres=gpu:4
-#SBATCH --mem-per-gpu=100G
-#SBATCH --time=4:59:00
+#SBATCH --mem-per-gpu=50G
+#SBATCH --time=1:59:00
 #SBATCH --account=s1189
 #SBATCH --constraint=rome
 ##SBATCH --qos=debug

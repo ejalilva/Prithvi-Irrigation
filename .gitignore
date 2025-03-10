@@ -1,31 +1,78 @@
-# Ignore Python compiled files
+# ============================
+# General Python Ignore Rules
+# ============================
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Ignore virtual environment folders
+# ============================
+# Virtual Environment & Dependencies
+# ============================
 env/
 venv/
 .venv/
+*.egg-info/
+*.egg
+*.whl
 
-# Ignore Jupyter Notebook checkpoints
+# ============================
+# Jupyter Notebooks & Checkpoints
+# ============================
 .ipynb_checkpoints/
 
-# Ignore data and output files (if applicable)
+# ============================
+# PyTorch-Specific Ignore Rules
+# ============================
+*.pt          # PyTorch model files
+*.pth         # PyTorch model checkpoints
+*.onnx        # ONNX exported models
+torch_cache/  # Torch caching folder
+
+# ============================
+# Lightning-Specific Ignore Rules
+# ============================
+lightning_logs/      # Lightning training logs
+lightning_checkpoints/  # Lightning-generated model checkpoints
+checkpoints/         # Model checkpoints
+*.ckpt               # Checkpoint files
+*.h5                 # HDF5 model files (sometimes used for saving weights)
+tensorboard/         # TensorBoard logs
+
+# ============================
+# Logging, Debugging & Outputs
+# ============================
+logs/
+*.log
+*.out
+*.err
+
+# ============================
+# Large Data Files & Outputs
+# ============================
 *.csv
 *.h5
-*.log
-*.pickle
 *.sqlite
 *.db
+*.pickle
+*.npy
+*.npz
+*.parquet
 
-# Ignore environment files
+# ============================
+# Environment Files
+# ============================
 .env
 *.env
 
-# Ignore temporary and system files
+# ============================
+# System Files
+# ============================
 .DS_Store
 Thumbs.db
 
-# Ignore Python egg files
-*.egg-info/
+# ============================
+# Slurm & HPC Specific Ignore Rules
+# ============================
+slurm-*.out  # SLURM output logs
+*.sbatch      # SLURM batch script files
+
