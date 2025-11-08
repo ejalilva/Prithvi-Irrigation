@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[3]:
+# In[1]:
 
 
 # reading crop classes chips
@@ -12,6 +12,8 @@ import rasterio
 from rasterio.merge import merge
 import xarray as xr
 import numpy as np
+import geopandas as gpd
+from shapely.geometry import Point
 
 
 
@@ -25,7 +27,7 @@ files = glob.glob(os.path.join(train_dir,'*mask.tif'))
 print(len(files))
 
 
-# In[4]:
+# In[2]:
 
 
 original_chip = rio.open_rasterio(files[file_id])
@@ -34,135 +36,174 @@ chip = original_chip.sel(band=1).drop_vars('band')
 chip.x
 
 
-# In[ ]:
+# In[3]:
 
 
-# Cell 1: Irrigation likelihood mapping based on crop type
-import rasterio
-import numpy as np
-import glob
+# Complete CDL irrigation likelihood map with official colors
+# Format: CDL_code: (irrigation_likelihood, hex_color, crop_name)
 
-# Irrigation likelihood classes:
-# 0: No Data/Non-Ag
-# 1: Highly Likely Irrigated 
-# 2: Likely Irrigated (regional dependent)
-# 3: Possibly Irrigated 
-# 4: Unlikely Irrigated
-# 5: Non-Agricultural
-
-# Crop-based irrigation likelihood mapping
-irrigation_likelihood_map = {
-    # No Data / Background
-    0: 0,   # No Data
-    81: 0,  # Clouds/No Data
+CDL_IRRIGATION_MAP = {
+    # NO DATA (0)
+    0: (0, '#000000', 'Background'),
+    81: (0, '#f7f7f7', 'Clouds/No Data'),
     
-    # HIGHLY LIKELY IRRIGATED (almost always irrigated)
-    3: 1,   # Rice
-    47: 1,  # Misc Vegs & Fruits
-    48: 1,  # Watermelons
-    49: 1,  # Onions
-    50: 1,  # Cucumbers
-    54: 1,  # Tomatoes
-    66: 1,  # Cherries
-    67: 1,  # Peaches
-    68: 1,  # Apples
-    69: 1,  # Grapes
-    70: 1,  # Christmas Trees
-    71: 1,  # Other Tree Crops
-    72: 1,  # Citrus
-    74: 1,  # Pecans
-    75: 1,  # Almonds
-    76: 1,  # Walnuts
-    77: 1,  # Pears
-    92: 1,  # Aquaculture
-    204: 1, # Pistachios
-    206: 1, # Carrots
-    207: 1, # Asparagus
-    208: 1, # Garlic
-    209: 1, # Cantaloupes
-    210: 1, # Prunes
-    211: 1, # Olives
-    212: 1, # Oranges
-    213: 1, # Honeydew Melons
-    214: 1, # Broccoli
-    215: 1, # Avocados
-    216: 1, # Peppers
-    217: 1, # Pomegranates
-    218: 1, # Nectarines
-    219: 1, # Greens
-    220: 1, # Plums
-    221: 1, # Strawberries
-    222: 1, # Squash
-    223: 1, # Apricots
-    227: 1, # Lettuce
-    229: 1, # Pumpkins
-    242: 1, # Blueberries
-    243: 1, # Cabbage
-    244: 1, # Cauliflower
-    245: 1, # Celery
-    246: 1, # Radishes
-    247: 1, # Turnips
-    248: 1, # Eggplants
-    249: 1, # Gourds
-    250: 1, # Cranberries
+    # HIGHLY LIKELY IRRIGATED (1) - Nearly always irrigated
+    3: (1, '#00a9e6', 'Rice'),
+    14: (1, '#80d4ff', 'Mint'),
+    41: (1, '#a900e6', 'Sugarbeets'),
+    47: (1, '#ff6666', 'Misc Vegs & Fruits'),
+    48: (1, '#ff6666', 'Watermelons'),
+    49: (1, '#ffcc66', 'Onions'),
+    50: (1, '#ff6666', 'Cucumbers'),
+    51: (1, '#00af4d', 'Chick Peas'),
+    52: (1, '#00deb0', 'Lentils'),
+    53: (1, '#55ff00', 'Peas'),
+    54: (1, '#f5a27a', 'Tomatoes'),
+    55: (1, '#ff6666', 'Caneberries'),
+    56: (1, '#00af4d', 'Hops'),
+    57: (1, '#80d4ff', 'Herbs'),
+    66: (1, '#ff00ff', 'Cherries'),
+    67: (1, '#ff91ab', 'Peaches'),
+    68: (1, '#b90050', 'Apples'),
+    69: (1, '#704489', 'Grapes'),
+    70: (1, '#007878', 'Christmas Trees'),
+    71: (1, '#b39c70', 'Other Tree Crops'),
+    72: (1, '#ffff80', 'Citrus'),
+    74: (1, '#b6705c', 'Pecans'),
+    75: (1, '#00a884', 'Almonds'),
+    76: (1, '#ebd6b0', 'Walnuts'),
+    77: (1, '#b39c70', 'Pears'),
+    92: (1, '#00ffff', 'Aquaculture'),
+    204: (1, '#00ff8c', 'Pistachios'),
+    206: (1, '#ff6666', 'Carrots'),
+    207: (1, '#ff6666', 'Asparagus'),
+    208: (1, '#ff6666', 'Garlic'),
+    209: (1, '#ff6666', 'Cantaloupes'),
+    210: (1, '#ff91ab', 'Prunes'),
+    211: (1, '#344a34', 'Olives'),
+    212: (1, '#e67525', 'Oranges'),
+    213: (1, '#ff6666', 'Honeydew Melons'),
+    214: (1, '#ff6666', 'Broccoli'),
+    215: (1, '#66994d', 'Avocados'),
+    216: (1, '#ff6666', 'Peppers'),
+    217: (1, '#b39c70', 'Pomegranates'),
+    218: (1, '#ff91ab', 'Nectarines'),
+    219: (1, '#ff6666', 'Greens'),
+    220: (1, '#ff91ab', 'Plums'),
+    221: (1, '#ff6666', 'Strawberries'),
+    222: (1, '#ff6666', 'Squash'),
+    223: (1, '#ff91ab', 'Apricots'),
+    227: (1, '#ff6666', 'Lettuce'),
+    229: (1, '#ff6666', 'Pumpkins'),
+    242: (1, '#000099', 'Blueberries'),
+    243: (1, '#ff6666', 'Cabbage'),
+    244: (1, '#ff6666', 'Cauliflower'),
+    245: (1, '#ff6666', 'Celery'),
+    246: (1, '#ff6666', 'Radishes'),
+    247: (1, '#ff6666', 'Turnips'),
+    248: (1, '#ff6666', 'Eggplants'),
+    249: (1, '#ff6666', 'Gourds'),
+    250: (1, '#ff6666', 'Cranberries'),
     
-    # LIKELY IRRIGATED (regional/high value crops)
-    1: 2,   # Corn (regional dependent)
-    2: 2,   # Cotton (varies by region)
-    41: 2,  # Sugarbeets
-    43: 2,  # Potatoes
-    45: 2,  # Sugarcane
-    46: 2,  # Sweet Potatoes
-    36: 2,  # Alfalfa (often irrigated)
-    12: 2,  # Sweet Corn
+    # LIKELY IRRIGATED (2) - Regional/high-value crops
+    1: (2, '#ffd400', 'Corn'),
+    2: (2, '#ff2626', 'Cotton'),
+    6: (2, '#ffff00', 'Sunflower'),
+    11: (2, '#00af4d', 'Tobacco'),
+    12: (2, '#e0a60f', 'Sweet Corn'),
+    13: (2, '#e0a60f', 'Pop or Orn Corn'),
+    36: (2, '#ffa8e3', 'Alfalfa'),
+    43: (2, '#732600', 'Potatoes'),
+    45: (2, '#b380ff', 'Sugarcane'),
+    46: (2, '#732600', 'Sweet Potatoes'),
+    60: (2, '#00af4d', 'Switchgrass'),
+    # Double crop (usually requires irrigation)
+    26: (2, '#737300', 'Dbl Crop WinWht/Soybeans'),
+    225: (2, '#ffd400', 'Dbl Crop WinWht/Corn'),
+    226: (2, '#ffd400', 'Dbl Crop Oats/Corn'),
+    228: (2, '#ffd400', 'Dbl Crop Triticale/Corn'),
+    230: (2, '#8a6453', 'Dbl Crop Lettuce/Durum Wht'),
+    231: (2, '#ff6666', 'Dbl Crop Lettuce/Cantaloupe'),
+    232: (2, '#ff2626', 'Dbl Crop Lettuce/Cotton'),
+    233: (2, '#e2007f', 'Dbl Crop Lettuce/Barley'),
+    234: (2, '#ff9e0f', 'Dbl Crop Durum Wht/Sorghum'),
+    235: (2, '#ff9e0f', 'Dbl Crop Barley/Sorghum'),
+    236: (2, '#a87000', 'Dbl Crop WinWht/Sorghum'),
+    237: (2, '#ffd400', 'Dbl Crop Barley/Corn'),
+    238: (2, '#a87000', 'Dbl Crop WinWht/Cotton'),
+    239: (2, '#267300', 'Dbl Crop Soybeans/Cotton'),
+    240: (2, '#267300', 'Dbl Crop Soybeans/Oats'),
+    241: (2, '#ffd400', 'Dbl Crop Corn/Soybeans'),
+    254: (2, '#267300', 'Dbl Crop Barley/Soybeans'),
     
-    # POSSIBLY IRRIGATED (supplemental irrigation)
-    4: 3,   # Sorghum
-    10: 3,  # Peanuts
-    42: 3,  # Dry Beans
-    37: 3,  # Other Hay/Non Alfalfa
-    62: 3,  # Pasture/Grass
+    # POSSIBLY IRRIGATED (3) - Supplemental irrigation
+    4: (3, '#ff9e0f', 'Sorghum'),
+    10: (3, '#70a800', 'Peanuts'),
+    37: (3, '#a5f58d', 'Other Hay/Non Alfalfa'),
+    42: (3, '#a80000', 'Dry Beans'),
+    62: (3, '#e9ffbe', 'Pasture/Grass'),
     
-    # UNLIKELY IRRIGATED (typically rainfed)
-    5: 4,   # Soybeans
-    21: 4,  # Barley
-    22: 4,  # Durum Wheat
-    23: 4,  # Spring Wheat
-    24: 4,  # Winter Wheat
-    25: 4,  # Other Small Grains
-    27: 4,  # Rye
-    28: 4,  # Oats
-    31: 4,  # Canola
-    32: 4,  # Flaxseed
-    44: 4,  # Other Crops
-    61: 4,  # Fallow/Idle Cropland
-    58: 4,  # Clover/Wildflowers
-    59: 4,  # Sod/Grass Seed
-    176: 4, # Grassland/Pasture
+    # UNLIKELY IRRIGATED (4) - Typically rainfed
+    5: (4, '#267300', 'Soybeans'),
+    21: (4, '#e2007f', 'Barley'),
+    22: (4, '#8a6453', 'Durum Wheat'),
+    23: (4, '#d9b56c', 'Spring Wheat'),
+    24: (4, '#a87000', 'Winter Wheat'),
+    25: (4, '#d69dbc', 'Other Small Grains'),
+    27: (4, '#ae017e', 'Rye'),
+    28: (4, '#a15889', 'Oats'),
+    29: (4, '#73004c', 'Millet'),
+    30: (4, '#d69dbc', 'Speltz'),
+    31: (4, '#d1ff00', 'Canola'),
+    32: (4, '#8099ff', 'Flaxseed'),
+    33: (4, '#d6d600', 'Safflower'),
+    34: (4, '#d1ff00', 'Rape Seed'),
+    35: (4, '#00af4d', 'Mustard'),
+    38: (4, '#00af4d', 'Camelina'),
+    39: (4, '#d69dbc', 'Buckwheat'),
+    44: (4, '#00af4d', 'Other Crops'),
+    58: (4, '#e8beff', 'Clover/Wildflowers'),
+    59: (4, '#b2ffde', 'Sod/Grass Seed'),
+    61: (4, '#bfbf7a', 'Fallow/Idle Cropland'),
+    176: (4, '#e9ffbe', 'Grassland/Pasture'),
+    205: (4, '#d69dbc', 'Triticale'),
+    224: (4, '#00af4d', 'Vetch'),
     
-    # NON-AGRICULTURAL
-    63: 5,  # Forest
-    64: 5,  # Shrubland
-    65: 5,  # Barren
-    82: 5,  # Developed
-    83: 5,  # Water
-    87: 5,  # Wetlands
-    111: 5, # Open Water
-    121: 5, # Developed/Open Space
-    122: 5, # Developed/Low Intensity
-    123: 5, # Developed/Med Intensity
-    124: 5, # Developed/High Intensity
-    131: 5, # Barren
-    141: 5, # Deciduous Forest
-    142: 5, # Evergreen Forest
-    143: 5, # Mixed Forest
-    152: 5, # Shrubland
-    190: 5, # Woody Wetlands
-    195: 5, # Herbaceous Wetlands
+    # NON-AGRICULTURAL (5)
+    63: (5, '#95ce93', 'Forest'),
+    64: (5, '#c7d79e', 'Shrubland'),
+    65: (5, '#ccbfa3', 'Barren'),
+    82: (5, '#9c9c9c', 'Developed'),
+    83: (5, '#4d70a3', 'Water'),
+    88: (5, '#e9ffbe', 'Nonag/Undefined'),
+    111: (5, '#4d70a3', 'Open Water'),
+    112: (5, '#d4e3fc', 'Perennial Ice/Snow'),
+    121: (5, '#9c9c9c', 'Developed/Open Space'),
+    122: (5, '#9c9c9c', 'Developed/Low Intensity'),
+    123: (5, '#9c9c9c', 'Developed/Med Intensity'),
+    124: (5, '#9c9c9c', 'Developed/High Intensity'),
+    131: (5, '#ccbfa3', 'Barren'),
+    141: (5, '#95ce93', 'Deciduous Forest'),
+    142: (5, '#95ce93', 'Evergreen Forest'),
+    143: (5, '#95ce93', 'Mixed Forest'),
+    152: (5, '#c7d79e', 'Shrubland'),
+    
+    # Water (5)
+    83: (6, '#4d70a3', 'Water'),
+    111: (6, '#4d70a3', 'Open Water'),
+    87: (6, '#80b3b3', 'Wetlands'),
+    190: (6, '#80b3b3', 'Woody Wetlands'),
+    195: (6, '#80b3b3', 'Herbaceous Wetlands')
 }
 
+# Extract lookup dictionaries
+irrigation_likelihood_map = {k: v[0] for k, v in CDL_IRRIGATION_MAP.items()}
+cdl_color_map = {k: v[1] for k, v in CDL_IRRIGATION_MAP.items()}
+cdl_name_map = {k: v[2] for k, v in CDL_IRRIGATION_MAP.items()}
 
-# In[15]:
+
+
+# In[4]:
 
 
 # Cell 2: Process chips with location-based adjustments
@@ -171,6 +212,25 @@ cdl_src = rasterio.open(cdl20_path)
 
 print(f"Processing {len(chip_files)} chips...")
 
+# Transform regional boundaries to CDL coordinate system
+from rasterio.warp import transform_bounds
+
+# Western US boundary (longitude < -100) to CDL coordinates
+western_bounds = transform_bounds('EPSG:4326', cdl_src.crs, -180, 25, -100, 50)
+western_x_max = western_bounds[2]
+
+# High Plains boundary (-104 to -96 lon, 36 to 42 lat) to CDL coordinates  
+plains_bounds = transform_bounds('EPSG:4326', cdl_src.crs, -104, 36, -96, 42)
+plains_x_min, plains_y_min, plains_x_max, plains_y_max = plains_bounds
+
+# California Central Valley (-122 to -119 lon, 35 to 40 lat) to CDL coordinates
+ca_bounds = transform_bounds('EPSG:4326', cdl_src.crs, -122, 35, -119, 40)
+ca_x_min, ca_y_min, ca_x_max, ca_y_max = ca_bounds
+
+# Midwest Corn Belt (-98 to -80 lon, 38 to 46 lat) to CDL coordinates
+midwest_bounds = transform_bounds('EPSG:4326', cdl_src.crs, -98, 38, -80, 46)
+midwest_x_min, midwest_y_min, midwest_x_max, midwest_y_max = midwest_bounds
+        
 for i, chip_file in enumerate(chip_files):
     with rasterio.open(chip_file) as chip:
         # Get chip location (center coordinates) - keep in CDL coordinate system
@@ -178,36 +238,21 @@ for i, chip_file in enumerate(chip_files):
         center_x = (bounds.left + bounds.right) / 2
         center_y = (bounds.bottom + bounds.top) / 2
         
-        # Transform regional boundaries to CDL coordinate system
-        from rasterio.warp import transform_bounds
-        
-        # Western US boundary (longitude < -100) to CDL coordinates
-        western_bounds = transform_bounds('EPSG:4326', cdl_src.crs, -180, 25, -100, 50)
-        western_x_max = western_bounds[2]
-
-        # High Plains boundary (-104 to -96 lon, 36 to 42 lat) to CDL coordinates  
-        plains_bounds = transform_bounds('EPSG:4326', cdl_src.crs, -104, 36, -96, 42)
-        plains_x_min, plains_y_min, plains_x_max, plains_y_max = plains_bounds
-        
-        # California Central Valley (-122 to -119 lon, 35 to 40 lat) to CDL coordinates
-        ca_bounds = transform_bounds('EPSG:4326', cdl_src.crs, -122, 35, -119, 40)
-        ca_x_min, ca_y_min, ca_x_max, ca_y_max = ca_bounds
-        
-        # Midwest Corn Belt (-98 to -80 lon, 38 to 46 lat) to CDL coordinates
-        midwest_bounds = transform_bounds('EPSG:4326', cdl_src.crs, -98, 38, -80, 46)
-        midwest_x_min, midwest_y_min, midwest_x_max, midwest_y_max = midwest_bounds
-        
         # Extract from CDL at same location
         window = rasterio.windows.from_bounds(*chip.bounds, cdl_src.transform)
         cdl_data = cdl_src.read(1, window=window)
         
         # Create irrigation likelihood array
         irrigation_likelihood = np.full_like(cdl_data, 3, dtype=np.uint8)  # Default: possibly irrigated
-        
         # Apply crop-based classification
         for cdl_code, likelihood in irrigation_likelihood_map.items():
-            mask = cdl_data == cdl_code
-            irrigation_likelihood[mask] = likelihood
+            irrigation_likelihood[cdl_data == cdl_code] = likelihood
+
+        # Flag unmapped codes
+        unmapped_mask = ~np.isin(cdl_data, list(irrigation_likelihood_map.keys()))
+        if unmapped_mask.any():
+            unique_unmapped = np.unique(cdl_data[unmapped_mask])
+            print(f"Chip {i}: unmapped CDL codes {unique_unmapped}")
         
         # Location-based adjustments using CDL coordinate system
         # Western US (more irrigation)
@@ -224,20 +269,20 @@ for i, chip_file in enumerate(chip_files):
                 crop_mask = cdl_data == crop_code
                 current_class = irrigation_likelihood[crop_mask]
                 # Upgrade by one class (but don't exceed highly likely)
-                irrigation_likelihood[crop_mask] = np.maximum(current_class - 1, 1)
+                irrigation_likelihood[crop_mask] = np.clip(current_class - 1, 1, 5)
         
         # High Plains (heavy irrigation region)
         if (plains_x_min < center_x < plains_x_max and 
             plains_y_min < center_y < plains_y_max):  # High Plains in CDL coordinates
             # Most crops become likely or highly likely irrigated
-            crop_mask = (cdl_data >= 1) & (cdl_data <= 60)  # All crop codes
+            crop_mask = (cdl_data >= 1) & (cdl_data <= 60) & (irrigation_likelihood != 6)  # All crop codes
             current_class = irrigation_likelihood[crop_mask]
-            irrigation_likelihood[crop_mask] = np.maximum(current_class - 1, 1)
-        
+            irrigation_likelihood[crop_mask] = np.clip(current_class - 1, 1, 5)
+
         # California Central Valley (almost everything irrigated)
         if (ca_x_min < center_x < ca_x_max and 
             ca_y_min < center_y < ca_y_max):  # CA Central Valley in CDL coordinates
-            crop_mask = (cdl_data >= 1) & (cdl_data <= 254)  # All crops
+            crop_mask = (cdl_data >= 1) & (cdl_data <= 254) & (irrigation_likelihood != 6)  # All crops
             irrigation_likelihood[crop_mask] = 1  # Highly likely
         
         # Midwest corn belt adjustments
@@ -266,7 +311,7 @@ for i, chip_file in enumerate(chip_files):
                           transform=rasterio.windows.transform(window, cdl_src.transform)) as dst:
             dst.write(irrigation_likelihood, 1)
     
-    if (i + 1) % 10 == 0:
+    if (i + 1) % 20 == 0:
         print(f"Processed {i+1}/{len(chip_files)}")
 
 print("Done! Irrigation likelihood maps saved.")
@@ -274,342 +319,203 @@ print("Classes: 0=No Data, 1=Highly Likely, 2=Likely, 3=Possibly, 4=Unlikely, 5=
 cdl_src.close()
 
 
-# In[16]:
+# In[43]:
 
 
-chip_file
-
-
-# In[17]:
-
-
+# Lines 1-15: Replace entire visualization cell
+chip_num = 710
 import matplotlib.pyplot as plt
 import numpy as np
 import rioxarray as rio
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import ListedColormap, BoundaryNorm
 import matplotlib.patches as mpatches
 
 # Load data
-cdl_output_path = f"{lgrip_tiles_dir}/val_chip_20/cdl_original_0770.tif"
-irrigation_output_path = f"{lgrip_tiles_dir}/val_chip_20/irrigation_likelihood_0770.tif"
-
+cdl_output_path = f"{lgrip_tiles_dir}/val_chip_20/cdl_original_0{chip_num}.tif"
+irrigation_output_path = f"{lgrip_tiles_dir}/val_chip_20/irrigation_likelihood_0{chip_num}.tif"
 original_chip = rio.open_rasterio(cdl_output_path)
 irrigation_likelihood = rio.open_rasterio(irrigation_output_path)
 
-# Irrigation colormap
-irrigation_colors = ['#2c3e50', '#e74c3c', '#f39c12', '#f1c40f', '#2ecc71', '#95a5a6']
-irrigation_labels = ["No Data", "Highly Likely", "Likely", "Possibly", "Unlikely", "Non-Ag"]
-irrigation_cmap = ListedColormap(irrigation_colors)
-
-# Get all unique CDL classes
-cdl_data = original_chip.values
-unique_classes = np.unique(cdl_data[~np.isnan(cdl_data)]).astype(int)
-
-# CDL class names (add more as needed)
-cdl_names = {
-    1: 'Corn', 5: 'Soybeans', 12: 'Sweet Corn', 24: 'Winter Wheat', 27: 'Rye', 
-    28: 'Oats', 36: 'Alfalfa', 37: 'Other Hay', 42: 'Dry Beans', 43: 'Potatoes',
-    44: 'Other Crops', 59: 'Sod/Grass', 61: 'Fallow', 76: 'Walnuts', 
-    111: 'Open Water', 121: 'Developed/Open', 122: 'Developed/Low', 
-    123: 'Developed/Med', 124: 'Developed/High', 131: 'Barren', 
-    141: 'Deciduous Forest', 142: 'Evergreen Forest', 143: 'Mixed Forest',
-    152: 'Shrubland', 176: 'Grassland', 190: 'Woody Wetlands', 195: 'Herbaceous Wetlands'
+# Irrigation colormap (0-6)
+irrigation_colors = {
+    0: '#2c3e50',  # No Data
+    1: '#e74c3c',  # Highly Likely
+    2: '#f39c12',  # Likely
+    3: '#f1c40f',  # Possibly
+    4: '#2ecc71',  # Unlikely
+    5: '#95a5a6',  # Non-Ag
+    6: '#4d70a3',  # Water - NEW
 }
-
-# Create diverse contrasting colormap for CDL classes
-# Combine multiple qualitative colormaps for maximum contrast
-import matplotlib.cm as cm
-
-n_classes = len(unique_classes)
-print(f"Creating colormap for {n_classes} classes")
-
-# Get colors from multiple qualitative colormaps for maximum diversity
-colors1 = cm.tab20(np.linspace(0, 1, 20))  # 20 colors
-colors2 = cm.Set1(np.linspace(0, 1, 9))    # 9 colors  
-colors3 = cm.Set2(np.linspace(0, 1, 8))    # 8 colors
-colors4 = cm.Set3(np.linspace(0, 1, 12))   # 12 colors
-colors5 = cm.Paired(np.linspace(0, 1, 12)) # 12 colors
-
-# Combine all colors and take what we need
-all_colors = np.vstack([colors1, colors2, colors3, colors4, colors5])
-selected_colors = all_colors[:n_classes]
-
-# Create custom discrete colormap
-cdl_cmap = ListedColormap(selected_colors)
-
-# Create figure
-fig, axes = plt.subplots(ncols=2, figsize=(18, 7))
-
-# Left: Irrigation likelihood
-im1 = irrigation_likelihood.plot(x='x', cmap=irrigation_cmap, add_colorbar=False, 
-                                ax=axes[0], vmin=-0.5, vmax=5.5)
-cbar1 = plt.colorbar(im1, ax=axes[0], ticks=np.arange(6))
-cbar1.ax.set_yticklabels(irrigation_labels)
-axes[0].set_title('Irrigation Likelihood')
-
-# Right: CDL with diverse contrasting colors
-im2 = original_chip.plot(x='x', cmap=cdl_cmap, add_colorbar=False, ax=axes[1],
-                        vmin=unique_classes.min()-0.5, vmax=unique_classes.max()+0.5)
-
-# Create legend for ALL unique classes with the diverse colors
-legend_patches = []
-for i, code in enumerate(sorted(unique_classes)):
-    color = selected_colors[i]  # Use the exact color from our custom colormap
-    name = cdl_names.get(code, f'Class {code}')
-    patch = mpatches.Patch(color=color, label=f'{code}: {name}')
-    legend_patches.append(patch)
-
-axes[1].legend(handles=legend_patches, loc='center left', bbox_to_anchor=(1.05, 0.5), 
-              fontsize=8, title=f'All CDL Classes ({len(unique_classes)} total)')
-axes[1].set_title(f'CDL Classification - All {len(unique_classes)} Classes')
-
-plt.tight_layout()
-plt.show()
-
-print(f"CDL Classes: {len(unique_classes)} unique classes ({unique_classes.min()}-{unique_classes.max()})")
-print(f"Irrigation: {len(np.unique(irrigation_likelihood.values))} classes")
-
-
-# In[ ]:
-
-
-import matplotlib.pyplot as plt
-import numpy as np
-import rioxarray as rio
-from matplotlib.colors import ListedColormap
-
-# Load data
-original_chip = rio.open_rasterio(chip_file)  # Original CDL
-irrigation_likelihood = rio.open_rasterio(output_path)  # Irrigation likelihood
-
-# Colors for irrigation likelihood (6 classes: 0-5)
-irrigation_colors = [
-    '#2c3e50',  # 0: No Data
-    '#e74c3c',  # 1: Highly Likely Irrigated
-    '#f39c12',  # 2: Likely Irrigated  
-    '#f1c40f',  # 3: Possibly Irrigated
-    '#2ecc71',  # 4: Unlikely Irrigated
-    '#95a5a6'   # 5: Non-Agricultural
-]
 
 irrigation_labels = [
-    "No Data", "Highly Likely", "Likely", "Possibly", "Unlikely", "Non-Ag"
+    "No Data", "Highly Likely", "Likely", 
+    "Possibly", "Unlikely", "Non-Ag", "Water"  # Added Water
 ]
+irrigation_cmap = ListedColormap([irrigation_colors[i] for i in range(7)])
 
-irrigation_cmap = ListedColormap(irrigation_colors)
+# Get unique CDL classes in this chip
+cdl_data = original_chip.values.squeeze()
+unique_classes = np.unique(cdl_data[~np.isnan(cdl_data)]).astype(int)
+print(f"Found {len(unique_classes)} unique CDL classes: {unique_classes}")
 
-# Get CDL range
-original_data = original_chip.values[~np.isnan(original_chip.values)]
-cdl_min, cdl_max = int(original_data.min()), int(original_data.max())
 
-# Create plots
-fig, axes = plt.subplots(ncols=2, figsize=(16, 6))
+# In[44]:
 
-# Left: Irrigation likelihood with labels
-im1 = irrigation_likelihood.plot(x='x', cmap=irrigation_cmap, add_colorbar=False, 
-                                ax=axes[0], vmin=-0.5, vmax=5.5)
-cbar1 = plt.colorbar(im1, ax=axes[0], ticks=np.arange(6))
+
+# Build CDL colormap using official colors
+cdl_colors_list = []
+cdl_labels_list = []
+for code in sorted(unique_classes):
+    cdl_colors_list.append(cdl_color_map.get(code, '#808080'))  # Gray for unmapped
+    cdl_labels_list.append(f"{code}: {cdl_name_map.get(code, 'Unknown')}")
+
+# Create discrete colormap for sparse CDL values
+cdl_cmap = ListedColormap(cdl_colors_list)
+cdl_norm = BoundaryNorm(
+    boundaries=np.append(unique_classes - 0.5, unique_classes[-1] + 0.5),
+    ncolors=len(unique_classes)
+)
+
+# Plot
+fig, axes = plt.subplots(ncols=2, figsize=(20, 8))
+
+# Left: Irrigation likelihood
+im1 = axes[0].imshow(irrigation_likelihood.values.squeeze(), 
+                     cmap=irrigation_cmap, vmin=-0.5, vmax=6.5)
+cbar1 = plt.colorbar(im1, ax=axes[0], ticks=np.arange(7))
 cbar1.ax.set_yticklabels(irrigation_labels)
-axes[0].set_title('Irrigation Likelihood')
+axes[0].set_title('Irrigation Likelihood', fontsize=14)
+axes[0].axis('off')
 
-# Right: CDL continuous without labels
-original_chip.plot(x='x', cmap='viridis', ax=axes[1], vmin=cdl_min, vmax=cdl_max,
-                   cbar_kwargs={'label': 'CDL Code'})
-axes[1].set_title('CDL Classification')
+# Right: CDL with official colors
+im2 = axes[1].imshow(cdl_data, cmap=cdl_cmap, norm=cdl_norm)
+legend_patches = [mpatches.Patch(color=cdl_colors_list[i], label=cdl_labels_list[i]) 
+                  for i in range(len(unique_classes))]
+axes[1].legend(handles=legend_patches, loc='center left', bbox_to_anchor=(1.02, 0.5),
+              fontsize=9, title=f'CDL Classes ({len(unique_classes)})')
+axes[1].set_title('CDL Classification (Official Colors)', fontsize=14)
+axes[1].axis('off')
 
 plt.tight_layout()
 plt.show()
 
+# Check for unmapped codes in irrigation likelihood
+irrigation_data = irrigation_likelihood.values.squeeze()
+# print(f"\nIrrigation classes present: {np.unique(irrigation_data[~np.isnan(irrigation_data)])}")
 
-# In[ ]:
-
-
-# Reclassification mapping: CDL original codes -> simplified classes
-reclassify_map = {
-    # No Data / Background
-    0: 0,   # No Data
-    81: 0,  # Clouds/No Data
-    
-    # Natural Vegetation  
-    64: 1,  # Shrubland
-    152: 1, # Shrubland
-    176: 1, # Grassland/Pasture
-    62: 1,  # Pasture/Grass
-    
-    # Forest
-    63: 2,  # Forest
-    141: 2, # Deciduous Forest
-    142: 2, # Evergreen Forest
-    143: 2, # Mixed Forest
-    
-    # Corn
-    1: 3,   # Corn
-    12: 3,  # Sweet Corn
-    13: 3,  # Pop or Orn Corn
-    
-    # Soybeans
-    5: 4,   # Soybeans
-    
-    # Wetlands
-    87: 5,  # Wetlands
-    190: 5, # Woody Wetlands
-    195: 5, # Herbaceous Wetlands
-    
-    # Developed/Barren
-    82: 6,  # Developed
-    121: 6, # Developed/Open Space
-    122: 6, # Developed/Low Intensity
-    123: 6, # Developed/Med Intensity
-    124: 6, # Developed/High Intensity
-    65: 6,  # Barren
-    131: 6, # Barren
-    
-    # Open Water
-    83: 7,  # Water
-    111: 7, # Open Water
-    
-    # Winter Wheat
-    24: 8,  # Winter Wheat
-    
-    # Alfalfa
-    36: 9,  # Alfalfa
-    
-    # Fallow/Idle Cropland
-    61: 10, # Fallow/Idle Cropland
-    
-    # Cotton
-    2: 11,  # Cotton
-    
-    # Sorghum
-    4: 12,  # Sorghum
-}
-
-# Cell 2: Function to reclassify array
-def reclassify_cdl(data_array, reclassify_dict):
-    """Reclassify CDL data using mapping dictionary"""
-    # Create output array, default to class 13 (Other)
-    output = np.full_like(data_array, 13, dtype=np.uint8)
-    
-    # Apply reclassification
-    for original_code, new_code in reclassify_dict.items():
-        mask = data_array == original_code
-        output[mask] = new_code
-    
-    return output
-
-# Cell 3: Extract and reclassify CDL chips
-chip_files = glob.glob(f"{val_dir}/*mask.tif")
-cdl_src = rasterio.open(cdl20_path)
-
-print(f"Processing {len(chip_files)} chips...")
-
-for i, chip_file in enumerate(chip_files):
-    with rasterio.open(chip_file) as chip:
-        # Extract from CDL at same location
-        window = rasterio.windows.from_bounds(*chip.bounds, cdl_src.transform)
-        cdl_data = cdl_src.read(1, window=window)
-        
-        # Reclassify to match your 14-class scheme
-        reclassified_data = reclassify_cdl(cdl_data, reclassify_map)
-        
-        # Save reclassified chip
-        output_path = f"{lgrip_tiles_dir}/val_chip_20/cdl_2020_chip_{i:04d}.tif"
-        with rasterio.open(output_path, 'w', driver='GTiff', 
-                          height=reclassified_data.shape[0], width=reclassified_data.shape[1],
-                          count=1, dtype=reclassified_data.dtype, crs=cdl_src.crs,
-                          transform=rasterio.windows.transform(window, cdl_src.transform)) as dst:
-            dst.write(reclassified_data, 1)
-    
-    if (i + 1) % 10 == 0:
-        print(f"Processed {i+1}/{len(chip_files)}")
-
-print("Done! Reclassified CDL 2020 chips saved.")
-cdl_src.close()
+# Identify unmapped CDL codes
+unmapped = [c for c in unique_classes if c not in irrigation_likelihood_map]
+if unmapped:
+    print(f"⚠️  Unmapped CDL codes (defaulted to class 3): {unmapped}")
 
 
-# In[ ]:
+# In[45]:
 
 
-cdl_props = []
-cdl_files = glob.glob(f"{lgrip_tiles_dir}/training_chip_20/*.tif")
-len(cdl_files)
+# 1. Remove tiny patches
+from rasterio.features import sieve
+irrigation_likelihood = sieve(irrigation_likelihood.astype('int16'), size=4)
 
 
-# In[ ]:
+# In[46]:
 
 
-import matplotlib.pyplot as plt
-import numpy as np
-import rioxarray
-from matplotlib.colors import ListedColormap
+# # Lines 171-176: Add after base classification
 
-# Load data (make sure both are loaded)
-original_chip = rio.open_rasterio(chip_file)
-new_chip = rio.open_rasterio(output_path)
-colors = [
-    '#dcdcdc',  # No Data - light grey
-    '#76c476',  # Natural Vegetation - light green
-    '#005700',  # Forest - dark green
-    '#ffff00',  # Corn - yellow
-    '#ffffb2',  # Soybeans - pale yellow
-    '#7fffd4',  # Wetlands - aquamarine
-    '#d3d3d3',  # Developed / Barren - grey
-    '#1f77b4',  # Open Water - blue
-    '#d2b48c',  # Winter Wheat - light brown
-    '#347235',  # Alfalfa - rich green
-    '#e4d96f',  # Fallow / Idle Cropland - tan
-    '#f5f5f5',  # Cotton - light grey
-    '#e4c400',  # Sorghum - deep yellow
-    '#800080'   # Other - purple
-]
-cmap = ListedColormap(colors)
+# # Mode filter (best for categorical irrigation data)
+# from scipy.ndimage import generic_filter
+# from scipy.stats import mode
 
-fig, axes = plt.subplots(ncols=2, figsize=(16, 6))
+# def majority_vote(values):
+#     return mode(values, keepdims=False)[0]
 
-# Plot new_chip
-im1 = new_chip.plot(
-    x='x',
-    cmap=cmap,
-    add_colorbar=False,
-    ax=axes[0],
-    vmin=-0.5,
-    vmax=13.5
+# irrigation_likelihood = generic_filter(
+#     irrigation_likelihood, majority_vote, size=2, mode='nearest'
+# )
+
+
+# In[47]:
+
+
+# Build CDL colormap using official colors
+cdl_colors_list = []
+cdl_labels_list = []
+for code in sorted(unique_classes):
+    cdl_colors_list.append(cdl_color_map.get(code, '#808080'))  # Gray for unmapped
+    cdl_labels_list.append(f"{code}: {cdl_name_map.get(code, 'Unknown')}")
+
+# Create discrete colormap for sparse CDL values
+cdl_cmap = ListedColormap(cdl_colors_list)
+cdl_norm = BoundaryNorm(
+    boundaries=np.append(unique_classes - 0.5, unique_classes[-1] + 0.5),
+    ncolors=len(unique_classes)
 )
-cbar1 = plt.colorbar(im1, ax=axes[0], ticks=np.arange(0, 14))
-cbar1.ax.set_yticklabels([
-    "No data", "Natural Vegetation", "Forest", "Corn", "Soybeans", "Wetlands",
-    "Developed / Barren", "Open Water", "Winter Wheat", "Alfalfa",
-    "Fallow / Idle Cropland", "Cotton", "Sorghum", "Other"
-])
-axes[0].set_title('New Chip CDL Crop Class')
-axes[0].set_xlabel('X Coordinate')
-axes[0].set_ylabel('Y Coordinate')
 
-# Plot original_chip
-im2 = original_chip.plot(
-    x='x',
-    cmap=cmap,
-    add_colorbar=False,
-    ax=axes[1],
-    vmin=-0.5,
-    vmax=13.5
-)
-cbar2 = plt.colorbar(im2, ax=axes[1], ticks=np.arange(0, 14))
-cbar2.ax.set_yticklabels([
-    "No data", "Natural Vegetation", "Forest", "Corn", "Soybeans", "Wetlands",
-    "Developed / Barren", "Open Water", "Winter Wheat", "Alfalfa",
-    "Fallow / Idle Cropland", "Cotton", "Sorghum", "Other"
-])
-axes[1].set_title('Original Chip CDL Crop Class')
-axes[1].set_xlabel('X Coordinate')
-axes[1].set_ylabel('Y Coordinate')
+# Plot
+fig, axes = plt.subplots(ncols=2, figsize=(20, 8))
+
+# Left: Irrigation likelihood
+im1 = axes[0].imshow(irrigation_likelihood.squeeze(), 
+                     cmap=irrigation_cmap, vmin=-0.5, vmax=6.5)
+cbar1 = plt.colorbar(im1, ax=axes[0], ticks=np.arange(7))
+cbar1.ax.set_yticklabels(irrigation_labels)
+axes[0].set_title('Irrigation Likelihood', fontsize=14)
+axes[0].axis('off')
+
+# Right: CDL with official colors
+im2 = axes[1].imshow(cdl_data, cmap=cdl_cmap, norm=cdl_norm)
+legend_patches = [mpatches.Patch(color=cdl_colors_list[i], label=cdl_labels_list[i]) 
+                  for i in range(len(unique_classes))]
+axes[1].legend(handles=legend_patches, loc='center left', bbox_to_anchor=(1.02, 0.5),
+              fontsize=9, title=f'CDL Classes ({len(unique_classes)})')
+axes[1].set_title('CDL Classification (Official Colors)', fontsize=14)
+axes[1].axis('off')
 
 plt.tight_layout()
-fig.autofmt_xdate()
 plt.show()
 
+# Check for unmapped codes in irrigation likelihood
+irrigation_data = irrigation_likelihood.squeeze()
+# print(f"\nIrrigation classes present: {np.unique(irrigation_data[~np.isnan(irrigation_data)])}")
 
-# In[ ]:
+# Identify unmapped CDL codes
+unmapped = [c for c in unique_classes if c not in irrigation_likelihood_map]
+if unmapped:
+    print(f"⚠️  Unmapped CDL codes (defaulted to class 3): {unmapped}")
+
+
+# Plot coastlines
+state_dir = '/discover/nobackup/ejalilva/data/coastline'
+state_shp = os.path.join(state_dir, 'ne_110m_admin_1_states_provinces.shp')
+state = gpd.read_file(state_shp)
+state['iso_3166_2'] = state['iso_3166_2'].str.replace('US-', '', regex=False)
+
+src = rasterio.open(cdl_output_path)    # Use transform_bounds instead of transform to avoid PROJ error
+bounds_4326 = transform_bounds(src.crs, 'EPSG:4326', *src.bounds)
+center_lon = (bounds_4326[0] + bounds_4326[2]) / 2
+center_lat = (bounds_4326[1] + bounds_4326[3]) / 2
+
+# Plot with coastlines
+fig, ax = plt.subplots(figsize=(10, 8))
+
+# Find intersecting state
+point = Point(center_lon, center_lat)
+intersecting_state = state[state.contains(point)]
+intersecting_state
+
+# Lines: state.plot(ax=ax, ...) - replace with:
+state.plot(ax=ax, color='w', edgecolor='#1E2A56', linewidth=1)
+if not intersecting_state.empty:
+    intersecting_state.plot(ax=ax, color='#FFD700', edgecolor='red', linewidth=2, alpha=0.5)
+state.apply(lambda x: ax.annotate(text=x['iso_3166_2'], xy=x.geometry.centroid.coords[0], ha='center'), axis=1)
+
+# Plot chip centers
+ax.scatter(center_lon, center_lat, c='red', s=50, alpha=0.8, zorder=5)
+
+ax.set_xlim(-130, -65)
+ax.set_ylim(25, 50)
+# ax.set_title(f'{len(chip_files)} Training Chip Locations')
+ax.grid(True, alpha=0.3)
 
 
 
