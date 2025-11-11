@@ -40,7 +40,12 @@ from albumentations.pytorch import ToTensorV2
 
 import lightning.pytorch as pl
 from lightning.pytorch.loggers import TensorBoardLogger
+
+# callbacks
 from lightning.pytorch.callbacks import ModelCheckpoint
+from loss_callback import LossTrackerCallback  # Import the callback class
+from confusionMatrix_callback_withVal import ConfusionMatrixCallback
+# from prediction_collector_callback import PredictionCollectorCallback
 
 if torch.cuda.is_available():
     num_gpus = torch.cuda.device_count()
@@ -126,7 +131,7 @@ logger = TensorBoardLogger(
 )
 
 # colab will kill the kernel after ~24 epochs, therefore stopping after two and pull the correct checkpoint after
-max_epochs = 1 if 'google.colab' in sys.modules else 50 
+max_epochs = 1 if 'google.colab' in sys.modules else 40 
 
 checkpoint_callback = ModelCheckpoint(
     dirpath="checkpoints/",                 # Directory to save the checkpoints
@@ -140,6 +145,17 @@ checkpoint_callback = ModelCheckpoint(
 
 )
 
+# Define class names to match your dataset
+class_names = ["Water", "Natural", "Irrigated", "Rainfed"]  # These should match your 4 classes
+
+# Initialize the callbacks
+loss_tracker = LossTrackerCallback()
+conf_matrix_callback = ConfusionMatrixCallback(
+    class_names=class_names,
+    save_dir="confusion_matrices"
+)
+# prediction_collector = PredictionCollectorCallback(save_dir="predictions")
+
 # Trainer
 trainer = pl.Trainer(
     accelerator="auto",
@@ -151,7 +167,7 @@ trainer = pl.Trainer(
     check_val_every_n_epoch=2,
     log_every_n_steps=10,
     enable_checkpointing=True,
-    callbacks=[checkpoint_callback],
+    callbacks=[checkpoint_callback, loss_tracker,conf_matrix_callback],
     default_root_dir="root_dir",
     strategy='ddp_find_unused_parameters_true' 
 )
@@ -201,7 +217,7 @@ model = SemanticSegmentationTask(
 
     },
     plot_on_val=False,
-    class_weights=[42.59142538,  9.41862502,  3.79541504,  1.64779206], # water, irrigated, rainfed, natural
+    class_weights=[2.28, 1.02, 1.37, 0.54], # water, irrigated, rainfed, natural
     loss="ce",
     lr=1.0e-4, # decreased to 1e-4 from 2e-4
     optimizer="AdamW",
@@ -215,6 +231,7 @@ model = SemanticSegmentationTask(
 # Training
 trainer.fit(model, datamodule=data_module)
 
+loss_tracker.plot_loss()
 # trainer.test(model, datamodule=data_module, ckpt_path='checkpoints/hyper-epoch=49.ckpt')
 
 # # now we can use the model for predictions and ploting!
