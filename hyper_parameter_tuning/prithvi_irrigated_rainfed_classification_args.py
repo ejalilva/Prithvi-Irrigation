@@ -9,6 +9,7 @@ import torch
 torch.set_float32_matmul_precision('medium')  # Enable Tensor Cores
 import torch.optim as optim
 import matplotlib.pyplot as plt
+import argparse
 
 
 # Get absolute path of the local package
@@ -127,20 +128,20 @@ pl.seed_everything(0)
 
 # Logger
 logger = TensorBoardLogger(
-    save_dir="output",
+    save_dir=f"output/{RUN_NAME}",
     name="tutorial"
 )
 
 # colab will kill the kernel after ~24 epochs, therefore stopping after two and pull the correct checkpoint after
-max_epochs = 1 if 'google.colab' in sys.modules else 60 
+max_epochs = 1 if 'google.colab' in sys.modules else 40 
 
 checkpoint_callback = ModelCheckpoint(
-    dirpath="checkpoints/",                 # Directory to save the checkpoints
+    dirpath=f"checkpoints/{RUN_NAME}/",                 # Directory to save the checkpoints
     mode="max",                             # Maximize variable
     monitor="val/Multiclass_Jaccard_Index", # Variable to monitor
     filename="hyper_with_loc_metadata-{epoch:02d}",           # Filename format
     save_top_k=-1,                          # Save all checkpoints
-    every_n_epochs=30,                      # Save every epoch
+    every_n_epochs=50,                      # Save every epoch
     save_on_train_epoch_end=True,            # Ensure saving after each epoch
     save_last=True  # This will always keep the last epoch checkpoint.
 
@@ -153,9 +154,18 @@ class_names = ["Water", "Natural", "Irrigated", "Rainfed"]  # These should match
 loss_tracker = LossTrackerCallback()
 conf_matrix_callback = ConfusionMatrixCallback(
     class_names=class_names,
-    save_dir="confusion_matrices"
+    save_dir=f"confusion_matrices/{RUN_NAME}"
 )
 # prediction_collector = PredictionCollectorCallback(save_dir="predictions")
+# getting trainer parameter from sbatch args
+parser = argparse.ArgumentParser()
+parser.add_argument('--lr', type=float, default=1e-4)
+parser.add_argument('--wd', type=float, default=0.3)
+parser.add_argument('--dropout', type=float, default=0.3)
+args = parser.parse_args()
+
+# Auto-generate run name
+RUN_NAME = f"lr{args.lr}_wd{args.wd}_drop{args.dropout}"
 
 # Trainer
 trainer = pl.Trainer(
@@ -183,7 +193,7 @@ data_module = MultiTemporalCropClassificationDataModule(
     test_transform=transforms,
     reduce_zero_label=False,
     expand_temporal_dimension=True,
-    use_metadata=False, # Multicropclassification dataset has metadata for location and time
+    use_metadata=True, # Multicropclassification dataset has metadata for location and time
     num_workers=23
 )
 
@@ -201,7 +211,7 @@ model = SemanticSegmentationTask(
         "backbone_bands": ["BLUE", "GREEN", "RED", "NIR_NARROW", "SWIR_1", "SWIR_2"],
         "backbone_num_frames": 3,
         "num_classes": 4,
-        "head_dropout": 0.3, # increased to 0.3 from 0.1
+        "head_dropout": args.dropout, # increased to 0.3 from 0.1
         "decoder_channels": 256,
         "decoder_scale_modules": True,
         "necks": [
@@ -221,9 +231,9 @@ model = SemanticSegmentationTask(
     plot_on_val=False,
     class_weights=[2.28, 1.02, 1.37, 0.54], # water, irrigated, rainfed, natural
     loss="ce",
-    lr=1.0e-4, # decreased to 1e-4 from 2e-4
+    lr=args.lr, # decreased to 1e-4 from 2e-4
     optimizer="AdamW",
-    optimizer_hparams={"weight_decay": 0.3}, # increased to 0.3 from 0.1
+    optimizer_hparams={"weight_decay": args.wd}, # increased to 0.3 from 0.1
     ignore_index=-1,
     freeze_backbone=False,
     freeze_decoder=False,
