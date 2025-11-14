@@ -15,6 +15,8 @@ os.environ['PYPROJ_DATADIR'] = PYPROJ_PATH
 
 print(f"Set PROJ_LIB to: {os.environ['PROJ_LIB']}")
 print(f"Set PYPROJ_DATADIR to: {os.environ['PYPROJ_DATADIR']}")
+os.environ['HF_DATASETS_OFFLINE'] = '1'
+
 
 # Verify the file exists
 proj_db = os.path.join(PROJ_PATH, 'proj.db')
@@ -73,7 +75,7 @@ from confusionMatrix_callback_withVal import ConfusionMatrixCallback
 
 # Configuration
 DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
-STUDY_NAME = f"prithvi_tuning_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+STUDY_NAME = f"prithvi_tuning_V2"
 N_TRIALS = 50  # Number of trials
 MAX_EPOCHS_TUNING = 20  # Fewer epochs for tuning
 FINAL_EPOCHS = 60  # Full training with best params
@@ -85,6 +87,7 @@ if torch.cuda.is_available():
     print(f"Number of GPUs available: {num_gpus}")
     print(f"Using {N_GPUS} GPU(s) per trial")
 
+#     defines all the paths and data transformations which will be applied to all of the modules
 def create_datamodule(batch_size=16, num_workers=23):
     """Create the data module with specified batch size."""
     transforms = [
@@ -122,7 +125,7 @@ def objective(trial):
     optimizer_type = trial.suggest_categorical('optimizer', ['AdamW', 'SGD', 'Adam'])
     use_scheduler = trial.suggest_categorical('use_scheduler', [True, False])
     
-    # Class weights - you can also tune these
+    # Class weights
     use_class_weights = trial.suggest_categorical('use_class_weights', [True, False])
     if use_class_weights:
         # Your original weights: [2.28, 1.02, 1.37, 0.54]
@@ -205,7 +208,7 @@ def objective(trial):
             enable_checkpointing=True,
             callbacks=callbacks,
             default_root_dir=output_dir,
-            strategy='ddp_find_unused_parameters_true' if N_GPUS > 1 else 'auto',
+            strategy='ddp_find_unused_parameters_true',
             enable_model_summary=False,
             enable_progress_bar=True
         )
@@ -261,22 +264,30 @@ def objective(trial):
             model_factory="EncoderDecoderFactory",
         )
         
-        # Add learning rate scheduler if selected
+        # Add scheduler by overriding configure_optimizers
         if use_scheduler:
-            model.configure_optimizers = lambda: {
-                "optimizer": getattr(torch.optim, optimizer_type)(
-                    model.parameters(), lr=lr, **optimizer_hparams
-                ),
-                "lr_scheduler": {
-                    "scheduler": torch.optim.lr_scheduler.CosineAnnealingLR(
-                        getattr(torch.optim, optimizer_type)(
-                            model.parameters(), lr=lr, **optimizer_hparams
-                        ),
-                        T_max=MAX_EPOCHS_TUNING
-                    ),
-                    "interval": "epoch"
+            original_configure_optimizers = model.configure_optimizers
+
+            def configure_optimizers_with_scheduler():
+                opt_config = original_configure_optimizers()
+                if isinstance(opt_config, dict):
+                    optimizer = opt_config["optimizer"]
+                else:
+                    optimizer = opt_config
+
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer, T_max=MAX_EPOCHS_TUNING
+                )
+
+                return {
+                    "optimizer": optimizer,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "interval": "epoch"
+                    }
                 }
-            }
+
+            model.configure_optimizers = configure_optimizers_with_scheduler
         
         # Train
         trainer.fit(model, datamodule=data_module)
@@ -481,10 +492,24 @@ def main():
     print(f"Number of trials: {N_TRIALS}")
     print(f"Max epochs per trial: {MAX_EPOCHS_TUNING}")
     
-    # Create study
+    # # Create study
+    # study = optuna.create_study(
+    #     study_name=STUDY_NAME,
+    #     direction='maximize',
+    #     pruner=optuna.pruners.MedianPruner(
+    #         n_startup_trials=5,
+    #         n_warmup_steps=5,
+    #         interval_steps=1
+    #     ),
+    #     sampler=optuna.samplers.TPESampler(seed=42)
+    # )
+    
+    # You can also use a database to store the study for parallel trials
     study = optuna.create_study(
         study_name=STUDY_NAME,
         direction='maximize',
+        storage='sqlite:///optuna_study.db',
+        load_if_exists=True,
         pruner=optuna.pruners.MedianPruner(
             n_startup_trials=5,
             n_warmup_steps=5,
@@ -492,14 +517,6 @@ def main():
         ),
         sampler=optuna.samplers.TPESampler(seed=42)
     )
-    
-    # You can also use a database to store the study for parallel trials
-    # study = optuna.create_study(
-    #     study_name=STUDY_NAME,
-    #     direction='maximize',
-    #     storage='sqlite:///optuna_study.db',
-    #     load_if_exists=True
-    # )
     
     # Run optimization
     study.optimize(
