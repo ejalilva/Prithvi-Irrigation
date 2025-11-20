@@ -75,7 +75,7 @@ from confusionMatrix_callback_withVal import ConfusionMatrixCallback
 
 # Configuration
 DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
-STUDY_NAME = f"prithvi_tuning_V2"
+STUDY_NAME = f"prithvi_tuning_V1"
 N_TRIALS = 50  # Number of trials
 MAX_EPOCHS_TUNING = 20  # Fewer epochs for tuning
 FINAL_EPOCHS = 60  # Full training with best params
@@ -309,6 +309,9 @@ def objective(trial):
         with open(os.path.join(output_dir, "trial_results.json"), "w") as f:
             json.dump(trial_results, f, indent=2)
         
+        del model, trainer, data_module
+        torch.cuda.empty_cache()
+        import gc; gc.collect()
         print(f"Trial {trial.number} completed. Val Jaccard: {val_score:.4f}")
         
         return val_score
@@ -524,7 +527,9 @@ def main():
         n_trials=N_TRIALS,
         timeout=None,  # No timeout
         catch=(Exception,),  # Continue even if a trial fails
-        show_progress_bar=True
+        show_progress_bar=True,
+        gc_after_trial=True
+
     )
     
     # Print statistics
