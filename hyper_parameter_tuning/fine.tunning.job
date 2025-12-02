@@ -1,16 +1,16 @@
 #!/usr/local/bin/bash
-#SBATCH --job-name=prithvi-ag   #job name
+#SBATCH --job-name=prithvi-ag
 #SBATCH -o irrigation_prithvi_gpu.o%j
 #SBATCH --partition=gpu_a100
 #SBATCH --gres=gpu:2
-##SBATCH --mem-per-gpu=50G
+##SBATCH --mem=200G              # Changed: Use total memory instead of per-GPU
 #SBATCH --time=11:59:00
 #SBATCH --account=s1189
 #SBATCH --constraint=rome
-##SBATCH --qos=debug
-ulimit -s unlimited
 
+ulimit -s unlimited
 module load anaconda
 conda activate terratorch-tune
 
+# Remove --exclusive from srun since it conflicts with memory allocation
 srun --gres=gpu:2 --exclusive python3 optuna_hyperparameter_tuning.py
