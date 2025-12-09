@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=24
 #SBATCH --mem-per-gpu=122G
-#SBATCH --time=5:59:00
+#SBATCH --time=11:59:00
 #SBATCH --account=s1189
 #SBATCH --constraint=rome
 

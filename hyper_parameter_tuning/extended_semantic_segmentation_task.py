@@ -18,9 +18,17 @@ class ExtendedSemanticSegmentationTask(SemanticSegmentationTask):
         
         # Extract predictions and targets
         with torch.no_grad():
-            x, y = batch
-            # Forward pass
-            y_hat = self.forward(x)
+            x = batch["image"]
+            y = batch["mask"]
+
+            # Handle metadata if needed
+            other_keys = [k for k in batch.keys() if k not in ["image", "mask", "filename"]]
+            rest = {k: batch[k] for k in other_keys}
+
+            # Forward pass with metadata
+            y_hat = self.forward(x, **rest)
+            # # Forward pass
+            # y_hat = self.forward(x)
             # Store predictions and targets
             self.train_step_outputs.append({
                 'preds': y_hat.detach(),

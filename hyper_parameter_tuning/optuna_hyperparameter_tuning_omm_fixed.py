@@ -14,6 +14,9 @@ os.environ['PYPROJ_DATADIR'] = PYPROJ_PATH
 print(f"Set PROJ_LIB to: {os.environ['PROJ_LIB']}")
 print(f"Set PYPROJ_DATADIR to: {os.environ['PYPROJ_DATADIR']}")
 os.environ['HF_DATASETS_OFFLINE'] = '1'
+os.environ['PROJ_NETWORK'] = 'OFF'  # Disable PROJ network access
+import pyproj
+pyproj.network.set_network_enabled(False)
 
 # Verify the file exists
 proj_db = os.path.join(PROJ_PATH, 'proj.db')
@@ -71,8 +74,10 @@ from loss_callback import LossTrackerCallback
 from confusionMatrix_callback_withVal import ConfusionMatrixCallback
 
 # Configuration
-DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
-STUDY_NAME = f"prithvi_tuning_V3"  # New version - fresh database needed
+DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction-openet/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
+base_weights = [29.7, 2.1, 3.2, 5.5] # Use sqrt for softer weighting
+
+STUDY_NAME = f"prithvi_tuning_V5"  # New version - fresh database needed
 N_TRIALS = 50  # Number of trials
 MAX_EPOCHS_TUNING = 20  # Fewer epochs for tuning
 FINAL_EPOCHS = 60  # Full training with best params
@@ -111,7 +116,7 @@ def create_datamodule(batch_size=16, num_workers=4):
         test_transform=transforms,
         reduce_zero_label=False,
         expand_temporal_dimension=True,
-        use_metadata=False,
+        use_metadata=True,
         num_workers=num_workers,
         pin_memory=True,              # Faster GPU transfer
         persistent_workers=True if num_workers > 0 else False,  # Reduce worker spawn overhead
@@ -166,8 +171,7 @@ def objective(trial):
     use_class_weights = trial.suggest_categorical('use_class_weights', [True, False])
     weight_scale = trial.suggest_float('weight_scale', 0.5, 2.0)  # Always suggest for consistency
     if use_class_weights:
-        class_weights = [2.28 * weight_scale, 1.02 * weight_scale, 
-                        1.37 * weight_scale, 0.54 * weight_scale]
+        class_weights=[np.sqrt(w) * weight_scale for w in base_weights]
     else:
         class_weights = None
     
@@ -396,11 +400,10 @@ def train_best_model(study):
     
     if use_class_weights:
         weight_scale = best_params.get('weight_scale', 1.0)
-        class_weights = [2.28 * weight_scale, 1.02 * weight_scale, 
-                        1.37 * weight_scale, 0.54 * weight_scale]
+        class_weights=[np.sqrt(w) * weight_scale for w in base_weights]
     else:
-        class_weights = None
-    
+        None
+
     # Set seed
     pl.seed_everything(0)
     

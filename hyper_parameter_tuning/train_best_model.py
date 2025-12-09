@@ -6,10 +6,14 @@ os.environ['NO_ALBUMENTATIONS_UPDATE'] = '1'
 os.environ['PROJ_LIB'] = '/home/ejalilva/.conda/envs/terratorch-tune/lib/python3.12/site-packages/rasterio/proj_data'
 os.environ['PROJ_DATA'] = os.environ['PROJ_LIB']
 os.environ['HF_DATASETS_OFFLINE'] = '1'
+os.environ['PROJ_NETWORK'] = 'OFF'  # Disable PROJ network access
+import pyproj
+pyproj.network.set_network_enabled(False)
 
 import sys
 import torch
 import json
+import numpy as np
 torch.set_float32_matmul_precision('medium')
 
 # Local terratorch
@@ -29,16 +33,29 @@ from confusionMatrix_callback_withVal import ConfusionMatrixCallback
 # ============== LOAD BEST PARAMS FROM OPTUNA ==============
 import optuna
 study = optuna.load_study(
-    study_name="prithvi_tuning_V3",
-    storage="sqlite:///optuna_study_prithvi_tuning_V3.db"
+    study_name="prithvi_tuning_V4",
+    storage="sqlite:///optuna_study_prithvi_tuning_V4.db"
 )
 BEST_PARAMS = study.best_params
+
+BEST_PARAMS['freeze_backbone'] = False
+BEST_PARAMS['use_scheduler'] = False
+BEST_PARAMS['use_class_weights'] = True
+BEST_PARAMS['class_weights'] = 1
+BEST_PARAMS['batch_size'] = 16
+BEST_PARAMS['decoder_channels'] = 512
+BEST_PARAMS['optimizer'] = 'AdamW'
 print(f"Loaded best params (trial {study.best_trial.number}, Jaccard={study.best_value:.4f})")
 
-DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
+DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction-openet/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
+base_weights = [29.7, 2.1, 3.2, 5.5] # Use sqrt for softer weighting
 OUTPUT_DIR = 'best_model_training'
-MAX_EPOCHS = 60
+MAX_EPOCHS = 120
 
+if torch.cuda.is_available():
+    num_gpus = torch.cuda.device_count()
+    print("Number of GPUs:", num_gpus)
+    
 # ============== SETUP ==============
 pl.seed_everything(42)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -61,7 +78,7 @@ data_module = MultiTemporalCropClassificationDataModule(
     test_transform=transforms,
     reduce_zero_label=False,
     expand_temporal_dimension=True,
-    use_metadata=False,
+    use_metadata=True,
     num_workers=8,
     pin_memory=True,
     persistent_workers=True,
@@ -92,7 +109,7 @@ model = SemanticSegmentationTask(
         ]
     },
     plot_on_val=False,
-    class_weights=None,
+    class_weights=[np.sqrt(w) * BEST_PARAMS['class_weights'] for w in base_weights] if BEST_PARAMS['use_class_weights'] else None,
     loss="ce",
     lr=BEST_PARAMS['lr'],
     optimizer=BEST_PARAMS['optimizer'],
@@ -129,7 +146,7 @@ callbacks = [
 # Trainer
 trainer = pl.Trainer(
     accelerator="auto",
-    devices=2,
+    devices=num_gpus,
     precision="bf16-mixed",
     logger=TensorBoardLogger(save_dir=OUTPUT_DIR, name="logs"),
     max_epochs=MAX_EPOCHS,
