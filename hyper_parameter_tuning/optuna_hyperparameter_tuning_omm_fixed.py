@@ -133,6 +133,7 @@ def get_neck_indices(backbone_model):
         # Default to 300 indices
         return [5, 11, 17, 23]
 
+base_weights = [29.7, 2.1, 3.2, 5.5] # Use sqrt for softer weighting
 
 def objective(trial):
     """Optuna objective function for hyperparameter optimization."""
@@ -362,6 +363,8 @@ def objective(trial):
         
         return val_score
         
+    except optuna.TrialPruned:
+    raise
     except Exception as e:
         print(f"Trial {trial.number} failed with error: {str(e)}")
         import traceback
@@ -609,7 +612,7 @@ def main():
         objective,
         n_trials=N_TRIALS,
         timeout=None,
-        catch=(Exception,),
+        catch=(RuntimeError, ValueError, torch.cuda.OutOfMemoryError),
         show_progress_bar=True,
         gc_after_trial=True
     )

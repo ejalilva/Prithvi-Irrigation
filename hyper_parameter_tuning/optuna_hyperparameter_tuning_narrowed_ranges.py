@@ -15,6 +15,10 @@ print(f"Set PROJ_LIB to: {os.environ['PROJ_LIB']}")
 print(f"Set PYPROJ_DATADIR to: {os.environ['PYPROJ_DATADIR']}")
 os.environ['HF_DATASETS_OFFLINE'] = '1'
 
+os.environ['PROJ_NETWORK'] = 'OFF'
+import pyproj
+pyproj.network.set_network_enabled(False)
+
 # Verify the file exists
 proj_db = os.path.join(PROJ_PATH, 'proj.db')
 if os.path.exists(proj_db):
@@ -71,8 +75,11 @@ from loss_callback import LossTrackerCallback
 from confusionMatrix_callback_withVal import ConfusionMatrixCallback
 
 # Configuration
-DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
-STUDY_NAME = f"prithvi_tuning_V4"  # New version - fresh database needed
+DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction-openet/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
+base_weights = [29.7, 2.1, 3.2, 5.5] # Use sqrt for softer weighting
+
+
+STUDY_NAME = f"prithvi_tuning_V6"  # New version - fresh database needed
 N_TRIALS = 50  # Number of trials
 MAX_EPOCHS_TUNING = 20  # Fewer epochs for tuning
 FINAL_EPOCHS = 60  # Full training with best params
@@ -111,7 +118,7 @@ def create_datamodule(batch_size=16, num_workers=4):
         test_transform=transforms,
         reduce_zero_label=False,
         expand_temporal_dimension=True,
-        use_metadata=False,
+        use_metadata=True,
         num_workers=num_workers,
         pin_memory=True,              # Faster GPU transfer
         persistent_workers=True if num_workers > 0 else False,  # Reduce worker spawn overhead
@@ -174,21 +181,21 @@ def objective(trial):
 #     # Architecture choices
 #     freeze_backbone = trial.suggest_categorical('freeze_backbone', [True, False])
 
-    # FIXED - don't waste trials on these
+    # FIXED
+    batch_size = 8
+    backbone_model = 'prithvi_eo_v2_600_tl'
+    optimizer_type = 'AdamW'
+    decoder_channels = 512
     freeze_backbone = False
     use_scheduler = False
-    use_class_weights = False
-    class_weights = None
-    batch_size = 16
-    decoder_channels = 512
-    optimizer_type = 'AdamW'
-    
-    # SEARCH - the important ones with narrowed ranges
-    backbone_model = trial.suggest_categorical('backbone', 
-        ['prithvi_eo_v2_300_tl', 'prithvi_eo_v2_600_tl'])
-    head_dropout = trial.suggest_float('head_dropout', 0.35, 0.5)  # Narrowed
-    weight_decay = trial.suggest_float('weight_decay', 0.2, 0.5)   # Narrowed
-    lr = trial.suggest_float('lr', 3e-5, 2e-4, log=True)           # Narrowed around best
+
+    # SEARCH (4 params)
+    lr = trial.suggest_float('lr', 1e-5, 5e-4, log=True)
+    weight_decay = trial.suggest_float('weight_decay', 0.05, 0.5, log=True)
+    head_dropout = trial.suggest_float('head_dropout', 0.2, 0.45)
+    weight_scale = trial.suggest_float('weight_scale', 0.5, 2.0)
+
+    class_weights = [np.sqrt(w) * weight_scale for w in base_weights]
 
 
     
@@ -201,6 +208,8 @@ def objective(trial):
     print(f"  decoder_channels: {decoder_channels}")
     print(f"  optimizer: {optimizer_type}")
     print(f"  freeze_backbone: {freeze_backbone}")
+    print(f"  weight_scale: {weight_scale:.4f}")
+
     
     # Set seed for reproducibility
     pl.seed_everything(42 + trial.number)
@@ -319,30 +328,6 @@ def objective(trial):
             model_factory="EncoderDecoderFactory",
         )
         
-        # Add scheduler by overriding configure_optimizers
-        if use_scheduler:
-            original_configure_optimizers = model.configure_optimizers
-
-            def configure_optimizers_with_scheduler():
-                opt_config = original_configure_optimizers()
-                if isinstance(opt_config, dict):
-                    optimizer = opt_config["optimizer"]
-                else:
-                    optimizer = opt_config
-
-                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                    optimizer, T_max=MAX_EPOCHS_TUNING
-                )
-
-                return {
-                    "optimizer": optimizer,
-                    "lr_scheduler": {
-                        "scheduler": scheduler,
-                        "interval": "epoch"
-                    }
-                }
-
-            model.configure_optimizers = configure_optimizers_with_scheduler
         
         # Train
         trainer.fit(model, datamodule=data_module)
@@ -375,7 +360,9 @@ def objective(trial):
         print(f"Trial {trial.number} completed. Val Jaccard: {val_score:.4f}")
         
         return val_score
-        
+    
+    except optuna.TrialPruned:
+        raise    
     except Exception as e:
         print(f"Trial {trial.number} failed with error: {str(e)}")
         import traceback
@@ -400,24 +387,21 @@ def train_best_model(study):
     print(f"Best parameters: {json.dumps(best_params, indent=2)}")
     print(f"Best validation Jaccard: {study.best_value:.4f}")
     
-    # Extract best hyperparameters
+    # FIXED params (same as objective)
+    batch_size = 8
+    backbone_model = 'prithvi_eo_v2_600_tl'
+    optimizer_type = 'AdamW'
+    decoder_channels = 512
+    freeze_backbone = False
+    use_scheduler = False
+    
+    # SEARCHED params from study
     lr = best_params['lr']
     weight_decay = best_params['weight_decay']
     head_dropout = best_params['head_dropout']
-    batch_size = best_params['batch_size']
-    decoder_channels = best_params['decoder_channels']
-    optimizer_type = best_params['optimizer']
-    use_scheduler = best_params['use_scheduler']
-    use_class_weights = best_params['use_class_weights']
-    freeze_backbone = best_params['freeze_backbone']
-    backbone_model = best_params['backbone']
+    weight_scale = best_params['weight_scale']
     
-    if use_class_weights:
-        weight_scale = best_params.get('weight_scale', 1.0)
-        class_weights = [2.28 * weight_scale, 1.02 * weight_scale, 
-                        1.37 * weight_scale, 0.54 * weight_scale]
-    else:
-        class_weights = None
+    class_weights = [np.sqrt(w) * weight_scale for w in base_weights]
     
     # Set seed
     pl.seed_everything(0)
@@ -535,30 +519,6 @@ def train_best_model(study):
         model_factory="EncoderDecoderFactory",
     )
     
-    # Add scheduler for final training
-    if use_scheduler:
-        original_configure_optimizers = model.configure_optimizers
-
-        def configure_optimizers_with_scheduler():
-            opt_config = original_configure_optimizers()
-            if isinstance(opt_config, dict):
-                optimizer = opt_config["optimizer"]
-            else:
-                optimizer = opt_config
-
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=FINAL_EPOCHS
-            )
-
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "interval": "epoch"
-                }
-            }
-
-        model.configure_optimizers = configure_optimizers_with_scheduler
     
     # Train final model
     trainer.fit(model, datamodule=data_module)
@@ -624,7 +584,7 @@ def main():
         objective,
         n_trials=N_TRIALS,
         timeout=None,
-        catch=(Exception,),
+        catch=(RuntimeError, ValueError, torch.cuda.OutOfMemoryError),
         show_progress_bar=True,
         gc_after_trial=True
     )

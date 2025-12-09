@@ -16,6 +16,6 @@ conda activate terratorch-tune
 echo "Starting training at $(date)"
 echo "GPUs: $CUDA_VISIBLE_DEVICES"
 
-python3 train_best_model_v5.py
+python3 train_best_model_v5_noWeights.py
 
 echo "Finished at $(date)"

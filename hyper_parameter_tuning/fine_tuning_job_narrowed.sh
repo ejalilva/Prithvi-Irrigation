@@ -22,6 +22,6 @@ echo "GPUs allocated: $CUDA_VISIBLE_DEVICES"
 echo "CPUs allocated: $SLURM_CPUS_PER_TASK"
 
 # Run without --exclusive flag (was causing memory conflicts)
-python3 optuna_hyperparameter_tuning_omm_fixed.py
+python3 optuna_hyperparameter_tuning_narrowed_ranges.py
 
 echo "Job finished at $(date)"
