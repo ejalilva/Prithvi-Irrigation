@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=rf_bench
-#SBATCH --output=rf_bench.o%j
-#SBATCH --error=rf_bench.e%j
+#SBATCH --job-name=xgb_cpu
+#SBATCH --output=xgb_cpu.o%j
+#SBATCH --error=xgb_cpu.e%j
 #SBATCH --time=21:00:00
-#SBATCH --time-min=3:00:00
+#SBATCH --time-min=4:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=120
 #SBATCH --cpus-per-task=1
@@ -26,7 +26,7 @@ error_exit() {
 ml load anaconda || error_exit "Failed to load anaconda module"
 
 # Activate conda environment with error checking
-conda activate dask
+conda activate terratorch-tune
 
 # Print job information
 echo "Job started at: $(date)"
@@ -36,6 +36,6 @@ echo "Number of tasks: $SLURM_NTASKS"
 echo "CPUs per task: $SLURM_CPUS_PER_TASK"
 
 # Run the Python script with error checking
-python3 ./rf_benchmark_simple.py || error_exit "Python script failed"
+python3 ./xgb_train_bench_cpu.py || error_exit "Python script failed"
 
 echo "Job completed at: $(date)"

@@ -42,7 +42,7 @@ print(f"Params: {trial_30.params}")
 # ============== CONFIG ==============
 DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction-openet/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
 base_weights = [29.7, 2.1, 3.2, 5.5]
-OUTPUT_DIR = 'best_model_V5_without_weights'
+OUTPUT_DIR = 'best_model_V7_final'
 MAX_EPOCHS = 120
 
 # Fixed params (from V5 analysis)

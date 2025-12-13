@@ -1,10 +1,10 @@
-# rf_benchmark.py
+# xgb_benchmark.py
 import os
 import glob
 import numpy as np
 import rasterio
 from tqdm import tqdm
-from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
 from sklearn.metrics import confusion_matrix, accuracy_score, jaccard_score, f1_score, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 import joblib
@@ -12,12 +12,19 @@ import json
 
 # Config
 BASE_DIR = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction-openet/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
-OUTPUT_DIR = 'rf_outputs'
+OUTPUT_DIR = 'xgb_outputs'
 CLASS_NAMES = ["Water", "Natural", "Irrigated", "Rainfed"]
 MAX_PIXELS = 40_000_000
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 np.random.seed(42)
+
+# Check GPU
+import torch
+USE_GPU = torch.cuda.is_available()
+print(f"GPU available: {USE_GPU}")
+if USE_GPU:
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
 
 # Load data
 def load_data(data_dir):
@@ -47,15 +54,28 @@ if len(y_train) > MAX_PIXELS:
     X_train, y_train = X_train[idx], y_train[idx]
 print(f"Training: {len(y_train):,} pixels")
 
-# Train
-rf = RandomForestClassifier(
-    n_estimators=200, max_depth=20, min_samples_split=5, min_samples_leaf=2,
-    max_features='sqrt', class_weight='balanced', n_jobs=-1, random_state=42, verbose=1
+# Class weights
+class_counts = np.bincount(y_train.astype(int), minlength=4)
+sample_weights = (len(y_train) / (4 * class_counts))[y_train.astype(int)]
+
+# Train - XGBoost 2.0+ syntax
+xgb = XGBClassifier(
+    n_estimators=200,
+    max_depth=10,
+    learning_rate=0.1,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    objective='multi:softmax',
+    num_class=4,
+    tree_method='hist',                      # Changed from 'gpu_hist'
+    device='cuda' if USE_GPU else 'cpu',     # GPU selection here
+    random_state=42,
+    verbosity=1
 )
-rf.fit(X_train, y_train)
+xgb.fit(X_train, y_train, sample_weight=sample_weights)
 
 # Evaluate
-y_pred = rf.predict(X_val)
+y_pred = xgb.predict(X_val)
 results = {
     'accuracy': float(accuracy_score(y_val, y_pred)),
     'mean_jaccard': float(jaccard_score(y_val, y_pred, average='macro')),
@@ -66,14 +86,14 @@ print(f"\nAccuracy: {results['accuracy']:.4f}, Jaccard: {results['mean_jaccard']
 
 # Confusion matrix
 fig, ax = plt.subplots(figsize=(8, 6))
-ConfusionMatrixDisplay(confusion_matrix(y_val, y_pred), display_labels=CLASS_NAMES).plot(ax=ax, cmap='Blues')
-ax.set_title(f"Random Forest\nJaccard: {results['mean_jaccard']:.4f}")
+ConfusionMatrixDisplay(confusion_matrix(y_val, y_pred), display_labels=CLASS_NAMES).plot(ax=ax, cmap='Greens')
+ax.set_title(f"XGBoost\nJaccard: {results['mean_jaccard']:.4f}")
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, 'rf_confusion_matrix.png'), dpi=300)
+plt.savefig(os.path.join(OUTPUT_DIR, 'xgb_confusion_matrix.png'), dpi=300)
 plt.close()
 
 # Save
-joblib.dump(rf, os.path.join(OUTPUT_DIR, 'rf_model.joblib'))
-with open(os.path.join(OUTPUT_DIR, 'rf_results.json'), 'w') as f:
+joblib.dump(xgb, os.path.join(OUTPUT_DIR, 'xgb_model.joblib'))
+with open(os.path.join(OUTPUT_DIR, 'xgb_results.json'), 'w') as f:
     json.dump(results, f, indent=2)
 print(f"Saved to {OUTPUT_DIR}/")

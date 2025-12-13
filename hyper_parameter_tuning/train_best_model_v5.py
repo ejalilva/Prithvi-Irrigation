@@ -29,41 +29,43 @@ from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from loss_callback import LossTrackerCallback
 from confusionMatrix_callback_withVal import ConfusionMatrixCallback
 
-# ============== LOAD TRIAL 30 FROM V5 ==============
+# ============== LOAD Best trial V7 ==============
 import optuna
 study = optuna.load_study(
-    study_name="prithvi_tuning_V5",
-    storage="sqlite:///optuna_study_prithvi_tuning_V5.db"
+    study_name="prithvi_tuning_V7",
+    storage="sqlite:///optuna_study_prithvi_tuning_V7.db"
 )
-trial_30 = study.trials[30]
-print(f"Loaded trial 30: Jaccard={trial_30.value:.4f}")
-print(f"Params: {trial_30.params}")
+BEST_PARAMS = study.best_params
 
 # ============== CONFIG ==============
 DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction-openet/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
 base_weights = [29.7, 2.1, 3.2, 5.5]
-OUTPUT_DIR = 'best_model_V5_with_weights'
+OUTPUT_DIR = 'best_model_V7_final'
 MAX_EPOCHS = 120
 
-# Fixed params (from V5 analysis)
-batch_size = 8
-backbone_model = 'prithvi_eo_v2_600_tl'
-decoder_channels = 512
-optimizer_type = 'AdamW'
+# From best params
+backbone_model = BEST_PARAMS['backbone']
+batch_size = BEST_PARAMS['batch_size']
+decoder_channels = BEST_PARAMS['decoder_channels']
+lr = BEST_PARAMS['lr']
+weight_decay = BEST_PARAMS['weight_decay']
+head_dropout = BEST_PARAMS['head_dropout']
+optimizer_type = BEST_PARAMS['optimizer']
 
-# From trial 30
-lr = trial_30.params['lr']
-weight_decay = trial_30.params['weight_decay']
-head_dropout = trial_30.params['head_dropout']
+# Neck indices - dynamic based on backbone
+neck_indices = [7, 15, 23, 31] if 'v2_600' in backbone_model else [5, 11, 17, 23]
 
-# Class weights - sqrt baseline (scale=1.0)
-class_weights = [np.sqrt(w) for w in base_weights]
+# Class weights - log-scaled
+class_weights = [np.log1p(w) for w in base_weights]
 
 print(f"\nConfig:")
+print(f"  backbone: {backbone_model}")
+print(f"  batch_size: {batch_size}")
+print(f"  decoder_channels: {decoder_channels}")
 print(f"  lr: {lr:.6f}")
 print(f"  weight_decay: {weight_decay:.4f}")
 print(f"  head_dropout: {head_dropout:.4f}")
-print(f"  class_weights: {class_weights}")
+print(f"  class_weights: {[f'{w:.2f}' for w in class_weights]}")
 
 # ============== SETUP ==============
 if torch.cuda.is_available():
@@ -96,7 +98,7 @@ data_module = MultiTemporalCropClassificationDataModule(
     persistent_workers=True,
 )
 
-neck_indices = [7, 15, 23, 31]  # 600 model
+neck_indices = [7, 15, 23, 31] if 'v2_600' in backbone_model else [5, 11, 17, 23]
 
 model = SemanticSegmentationTask(
     model_args={
@@ -175,8 +177,7 @@ test_results = trainer.test(model, datamodule=data_module, ckpt_path='best')
 # Save results
 with open(os.path.join(OUTPUT_DIR, "results.json"), "w") as f:
     json.dump({
-        "trial_30_params": trial_30.params,
-        "trial_30_jaccard": trial_30.value,
+        "best_params": BEST_PARAMS,
         "class_weights": class_weights,
         "test_results": test_results,
         "best_checkpoint": trainer.checkpoint_callback.best_model_path

@@ -76,10 +76,14 @@ from confusionMatrix_callback_withVal import ConfusionMatrixCallback
 # Configuration
 DATASET_PATH = '/discover/nobackup/ejalilva/data/prithvi/datasets--ibm-nasa-geospatial--multi-temporal-irrigation-classificaction-openet/snapshots/04b439f179e52a7b144f69676210eecd30c39cfc/'
 base_weights = [29.7, 2.1, 3.2, 5.5] # Use sqrt for softer weighting
+# ADD after DATASET_PATH and base_weights:
+CLASS_WEIGHTS = [np.sqrt(w) for w in base_weights]  # Fixed, not tuned
+print(f"Using FIXED class weights: {CLASS_WEIGHTS}")
 
-STUDY_NAME = f"prithvi_tuning_V5"  # New version - fresh database needed
+
+STUDY_NAME = f"prithvi_tuning_V7"  # New version - fresh database needed
 N_TRIALS = 50  # Number of trials
-MAX_EPOCHS_TUNING = 20  # Fewer epochs for tuning
+MAX_EPOCHS_TUNING = 25  # Fewer epochs for tuning
 FINAL_EPOCHS = 60  # Full training with best params
 N_GPUS = 1  # Single GPU per trial for memory efficiency
 
@@ -133,7 +137,6 @@ def get_neck_indices(backbone_model):
         # Default to 300 indices
         return [5, 11, 17, 23]
 
-base_weights = [29.7, 2.1, 3.2, 5.5] # Use sqrt for softer weighting
 
 def objective(trial):
     """Optuna objective function for hyperparameter optimization."""
@@ -160,25 +163,17 @@ def objective(trial):
         decoder_channels = decoder_channels_suggested
     
     # Other hyperparameters to tune
-    lr = trial.suggest_float('lr', 1e-5, 5e-3, log=True)
+    lr = trial.suggest_float('lr', 5e-6, 5e-4, log=True)
     weight_decay = trial.suggest_float('weight_decay', 0.01, 0.5, log=True)
-    head_dropout = trial.suggest_float('head_dropout', 0.0, 0.5)
+    head_dropout = trial.suggest_float('head_dropout', 0.1, 0.5)
     
     # Additional hyperparameters
-    optimizer_type = trial.suggest_categorical('optimizer', ['AdamW', 'SGD', 'Adam'])
-    use_scheduler = trial.suggest_categorical('use_scheduler', [True, False])
-    
-    # Class weights - always suggest weight_scale, only use it if use_class_weights is True
-    use_class_weights = trial.suggest_categorical('use_class_weights', [True, False])
-    weight_scale = trial.suggest_float('weight_scale', 0.5, 2.0)  # Always suggest for consistency
-    if use_class_weights:
-        class_weights=[np.sqrt(w) * weight_scale for w in base_weights]
-    else:
-        class_weights = None
-    
-    # Architecture choices
-    freeze_backbone = trial.suggest_categorical('freeze_backbone', [True, False])
-    
+    optimizer_type = trial.suggest_categorical('optimizer', ['AdamW', 'Adam'])
+    use_scheduler = False
+    freeze_backbone = False
+    class_weights = CLASS_WEIGHTS  # Fixed weights
+
+        
     print(f"\nTrial {trial.number} hyperparameters:")
     print(f"  backbone: {backbone_model}")
     print(f"  lr: {lr:.6f}")
@@ -223,8 +218,8 @@ def objective(trial):
     early_stopping = EarlyStopping(
         monitor="val/Multiclass_Jaccard_Index",
         mode="max",
-        patience=5,
-        min_delta=0.001
+        patience=10,
+        min_delta=0.0005
     )
     
     loss_tracker = LossTrackerCallback()
@@ -364,7 +359,7 @@ def objective(trial):
         return val_score
         
     except optuna.TrialPruned:
-    raise
+        raise
     except Exception as e:
         print(f"Trial {trial.number} failed with error: {str(e)}")
         import traceback
@@ -397,15 +392,10 @@ def train_best_model(study):
     decoder_channels = best_params['decoder_channels']
     optimizer_type = best_params['optimizer']
     use_scheduler = best_params['use_scheduler']
-    use_class_weights = best_params['use_class_weights']
     freeze_backbone = best_params['freeze_backbone']
     backbone_model = best_params['backbone']
-    
-    if use_class_weights:
-        weight_scale = best_params.get('weight_scale', 1.0)
-        class_weights=[np.sqrt(w) * weight_scale for w in base_weights]
-    else:
-        None
+    class_weights = CLASS_WEIGHTS
+
 
     # Set seed
     pl.seed_everything(0)
@@ -599,10 +589,11 @@ def main():
         direction='maximize',
         storage=db_path,
         load_if_exists=True,
-        pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,
-            n_warmup_steps=5,
-            interval_steps=1
+        pruner=optuna.pruners.PercentilePruner(
+            percentile=50.0,
+            n_startup_trials=10,
+            n_warmup_steps=10,
+            interval_steps=2
         ),
         sampler=optuna.samplers.TPESampler(seed=42)
     )
